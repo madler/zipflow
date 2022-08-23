@@ -23,7 +23,7 @@ plus the null termination and allocation overhead for the file name.
 Usage
 ------------
 
-Compile your code with zipflow.c and -lz (zlib). Example program are provided,
+Compile your code with zipflow.c and -lz (zlib). Example programs are provided,
 zips and fzip, which can be compiled thusly:
 
     cc -o zips zips.c zipflow.c -lz
