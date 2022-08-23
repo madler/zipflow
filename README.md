@@ -2,7 +2,8 @@ Synopsis
 --------
 
 _zipflow_ is a library of routines to generate and stream zip files. See
-zipflow.h for all the details.
+[zipflow.h](https://github.com/madler/zipflow/blob/main/zipflow.h) for all the
+details.
 
 Motivation
 ----------
