@@ -92,8 +92,8 @@ static void zip_msg(zip_t *zip, char const *fmt, ...) {
         va_end(args);
 
         // Construct the message. The "zipflow: " prefix and new line suffix
-        // otherwise included on stderr are omitted for message delivered to
-        // the user.
+        // otherwise included on stderr are omitted for the message delivered
+        // to the user.
         char *msg = malloc(len + 1);
         assert(msg != NULL && "out of memory");
         va_start(args, fmt);
@@ -128,6 +128,9 @@ static int zip_write(void *handle, void const *ptr, size_t size) {
     return ret;
 }
 
+// Allocate, initialize, and return a zip_t structure. Provide starting
+// allocations for the path and list of headers. Fire up the deflate engine,
+// using level for the compression level.
 ZIP *zip_init(int level) {
     zip_t *zip = malloc(sizeof(zip_t));
     assert(zip != NULL && "out of memory");
@@ -236,8 +239,8 @@ static void zip_local(zip_t *zip) {
 // Set the saved header fields for the uncompressed and compressed lengths, and
 // the CRC-32 computed on the uncompressed data. The input and output buffers
 // for deflation are allocated on the stack. If a write error is encountered,
-// the deflation process is abandoned, since the result wouldn't be going
-// anywhere anyway.
+// the deflation process is abandoned, since the result won't be going anywhere
+// anyway.
 static void zip_deflate(zip_t *zip, FILE *in) {
     head_t *head = zip->head + zip->hnum;
     head->ulen = 0;

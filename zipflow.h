@@ -58,8 +58,8 @@
 // Instead of writing to a file, an output function can be registered by using
 // zip_pipe() instead of zip_open():
 //
-//      void put(void *handle, void const *ptr, size_t len) {
-//          return fwrite(ptr, 1, len, (FILE *)handle) < size;
+//      int put(void *handle, void const *ptr, size_t len) {
+//          return fwrite(ptr, 1, len, (FILE *)handle) < len;
 //      }
 //      ZIP *zip = zip_pipe(stdout, put, level);
 //
@@ -67,7 +67,7 @@
 // instead, write to a communication channel, or do other processing on the
 // streaming zip file data.
 //
-// Warning and error messages can be optionally be captured by a registered
+// Warning and error messages can optionally be captured by a registered
 // function. For example:
 //
 //      void log(void *out, char *msg) {
@@ -177,7 +177,7 @@ int zip_close(ZIP *zip);
 // fails. Similarly, the deflate() process and localtime() on the current time
 // should not fail, and so assert out if there is an error or unexpected return
 // value. If there is a read error on a file after successfully opening it, the
-// entry is finished with the partial file data up to the error. However, the
+// entry is completed with the partial file data up to the error. However, the
 // entry is omitted from the zip file central directory, and a warning message
 // is issued. The omission results in the corrupted entry being invisible to
 // unzip and other zip file access programs and libraries.
