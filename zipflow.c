@@ -395,15 +395,17 @@ static void zip_path(zip_t *zip) {
         zip_room(zip, len + 2);
         zip->path[len++] = '/';     // slash works on Unix, macOS, and Windows
         struct dirent *dp;
+        size_t dp_namlen;
         while ((dp = readdir(dir)) != NULL) {
             if (dp->d_name[0] == '.' && (dp->d_name[1] == 0 ||
                 (dp->d_name[1] == '.' && dp->d_name[2] == 0)))
                 continue;           // ignore . and .. directories
+            dp_namlen = strlen(dp->d_name);
             // Append a slash and the name to zip->path. Recursively process
             // the new zip->path.
-            zip_room(zip, len + dp->d_namlen + 1);
-            memcpy(zip->path + len, dp->d_name, dp->d_namlen + 1);
-            zip->plen = len + dp->d_namlen;
+            zip_room(zip, len + dp_namlen + 1);
+            memcpy(zip->path + len, dp->d_name, dp_namlen + 1);
+            zip->plen = len + dp_namlen;
             zip_path(zip);
         }
         closedir(dir);
