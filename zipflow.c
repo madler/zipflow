@@ -178,18 +178,18 @@ ZIP *zip_init(int level) {
         PUT4((p) + 4, (uint64_t)(v) >> 32); \
     } while (0)
 
-// Convert the Unix time unix to DOS time in the four bytes at *dos. If there
+// Convert the Unix time clock to DOS time in the four bytes at *dos. If there
 // is a conversion error for any reason, store the current time in DOS format
 // at *dos. The Unix time in seconds is rounded up to an even number of
 // seconds, since the DOS time can only represent even seconds. If the Unix
 // time is before 1980, the minimum DOS time of Jan 1, 1980 is used.
-static void put_time(unsigned char *dos, time_t unix) {
-    unix += unix & 1;
-    struct tm *s = localtime(&unix);
+static void put_time(unsigned char *dos, time_t clock) {
+    clock += clock & 1;
+    struct tm *s = localtime(&clock);
     if (s == NULL) {
-        unix = time(NULL);              // on error, use current time
-        unix += unix & 1;
-        s = localtime(&unix);
+        clock = time(NULL);             // on error, use current time
+        clock += clock & 1;
+        s = localtime(&clock);
         assert(s != NULL && "internal error");
     }
     if (s->tm_year < 80) {              // no DOS time before 1980
@@ -209,11 +209,11 @@ static void zip_local(zip_t *zip) {
     head_t const *head = zip->head + zip->hnum;
 
     // Unix timestamps extra field.
-    unsigned char unix[12];
-    PUT2(unix, 13);                 // PKWare id for Unix timestamps
-    PUT2(unix + 2, 8);              // length of the remainder
-    PUT4(unix + 4, head->atime);    // Unix accessed time
-    PUT4(unix + 8, head->mtime);    // Unix modified time
+    unsigned char stamp[12];
+    PUT2(stamp, 13);                // PKWare id for Unix timestamps
+    PUT2(stamp + 2, 8);             // length of the remainder
+    PUT4(stamp + 4, head->atime);   // Unix accessed time
+    PUT4(stamp + 8, head->mtime);   // Unix modified time
 
     // Local header.
     unsigned char local[30];
@@ -227,12 +227,12 @@ static void zip_local(zip_t *zip) {
     PUT4(local + 18, 0);            // compressed size (in data descriptor)
     PUT4(local + 22, 0);            // uncompressed size (in data descriptor)
     PUT2(local + 26, head->nlen);   // file name length (name follows header)
-    PUT2(local + 28, sizeof(unix)); // extra field length (follows name)
+    PUT2(local + 28, sizeof(stamp));    // extra field length (follows name)
 
     // Write the local header.
     zip_put(zip, local, sizeof(local));
     zip_put(zip, head->name, head->nlen);
-    zip_put(zip, unix, sizeof(unix));
+    zip_put(zip, stamp, sizeof(stamp));
 }
 
 // Compress the file in using deflate, writing the compressed data to zip->out.
@@ -449,11 +449,11 @@ static void zip_central(zip_t *zip, head_t const *head) {
     PUT2(zip64 + 2, len);
 
     // Unix timestamps extra field.
-    unsigned char unix[12];
-    PUT2(unix, 13);                 // PKWare id for Unix timestamps
-    PUT2(unix + 2, 8);              // length of the remainder
-    PUT4(unix + 4, head->atime);    // Unix accessed time
-    PUT4(unix + 8, head->mtime);    // Unix modified time
+    unsigned char stamp[12];
+    PUT2(stamp, 13);                // PKWare id for Unix timestamps
+    PUT2(stamp + 2, 8);             // length of the remainder
+    PUT4(stamp + 4, head->atime);   // Unix accessed time
+    PUT4(stamp + 8, head->mtime);   // Unix modified time
 
     // Central directory header. Any offset or lengths that don't fit here are
     // replaced with the max value for the field, and appear instead in the
@@ -472,7 +472,7 @@ static void zip_central(zip_t *zip, head_t const *head) {
          head->ulen >= MAX32 ? MAX32 : head->ulen);
     PUT2(central + 28, head->nlen); // file name length (name after header)
     PUT2(central + 30,              // extra field length (after name)
-         (len ? len + 4 : 0) + sizeof(unix));
+         (len ? len + 4 : 0) + sizeof(stamp));
     PUT2(central + 32, 0);          // file comment length
     PUT2(central + 34, 0);          // starting disk
     PUT2(central + 36, 0);          // internal file attributes
@@ -485,7 +485,7 @@ static void zip_central(zip_t *zip, head_t const *head) {
     zip_put(zip, head->name, head->nlen);
     if (len)
         zip_put(zip, zip64, len + 4);
-    zip_put(zip, unix, sizeof(unix));
+    zip_put(zip, stamp, sizeof(stamp));
 }
 
 // Write the zip file end records. The central directory is behind us now, and
