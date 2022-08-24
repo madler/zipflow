@@ -540,15 +540,17 @@ static void zip_end(zip_t *zip, uint64_t beg, uint64_t len) {
     zip_put(zip, end, sizeof(end));
 }
 
-// Free all allocated memory.
-static void zip_clean(zip_t *zip) {
+// Free all allocated memory. Return true if a write error was noted.
+static int zip_clean(zip_t *zip) {
     deflateEnd(&zip->strm);
     while (zip->hnum)
         free(zip->head[--zip->hnum].name);
     free(zip->head);
     free(zip->path);
+    int bad = zip->bad;
     zip->id = 0;
     free(zip);
+    return bad;
 }
 
 // ------ exposed functions ------
@@ -705,6 +707,5 @@ int zip_close(ZIP *ptr) {
     zip_end(zip, beg, zip->off - beg);
     if (!zip->bad)
         zip->put(zip->handle, NULL, 0);
-    zip_clean(zip);
-    return zip->bad;
+    return zip_clean(zip);
 }
