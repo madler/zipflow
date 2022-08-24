@@ -404,9 +404,10 @@ static void zip_path(zip_t *zip) {
                 continue;           // ignore . and .. directories
             // Append a slash and the name to zip->path. Recursively process
             // the new zip->path.
-            zip_room(zip, len + dp->d_namlen + 1);
-            memcpy(zip->path + len, dp->d_name, dp->d_namlen + 1);
-            zip->plen = len + dp->d_namlen;
+            size_t nlen = strlen(dp->d_name);
+            zip_room(zip, len + nlen + 1);
+            memcpy(zip->path + len, dp->d_name, nlen + 1);
+            zip->plen = len + nlen;
             zip_path(zip);
         }
         closedir(dir);
