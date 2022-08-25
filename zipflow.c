@@ -9,7 +9,11 @@
 #include <stdint.h>
 #include <stdarg.h>
 #include <sys/stat.h>
-#include <sys/errno.h>
+#ifdef _WIN32
+#  include <errno.h>
+#else
+#  include <sys/errno.h>
+#endif
 #include <dirent.h>
 #include <time.h>
 #include <limits.h>
