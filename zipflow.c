@@ -489,12 +489,13 @@ static void zip_central(zip_t *zip, head_t const *head) {
     zip_put(zip, stamp, sizeof(stamp));
 }
 
-// Write the zip file end records. The central directory is behind us now, and
-// started at offset beg with length len.
-static void zip_end(zip_t *zip, uint64_t beg, uint64_t len) {
+// Write the zip file end records. The central directory started at offset beg
+// and ended at the current offset.
+static void zip_end(zip_t *zip, uint64_t beg) {
     // If the count, length, or offset doesn't fit in the end of central
     // directory record, then write the zip64 record and locator to hold and
     // find them.
+    uint64_t len = zip->off - beg;
     if (zip->hnum >= MAX16 || len >= MAX32 || beg >= MAX32) {
         // zip64 end of central directory record.
         unsigned char xend[56];
@@ -704,7 +705,7 @@ int zip_close(ZIP *ptr) {
     uint64_t beg = zip->off;
     for (size_t i = 0; i < zip->hnum && !zip->bad; i++)
         zip_central(zip, zip->head + i);
-    zip_end(zip, beg, zip->off - beg);
+    zip_end(zip, beg);
     if (!zip->bad)
         zip->put(zip->handle, NULL, 0);
     return zip_clean(zip);
