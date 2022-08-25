@@ -37,8 +37,7 @@ int main(int argc, char **argv) {
     size_t got;
     while ((got = fread(in, 1, sizeof(in), stdin)) == sizeof(in))
         if (zip_data(zip, in, got, 0))
-            break;
+            return zip_close(zip);
     zip_data(zip, in, got, 1);
-    zip_close(zip);
-    return 0;
+    return zip_close(zip);
 }

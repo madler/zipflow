@@ -26,6 +26,5 @@ int main(int argc, char **argv) {
     for (int i = 1; i < argc; i++)
         if (zip_entry(zip, argv[i]))
             break;
-    zip_close(zip);
-    return 0;
+    return zip_close(zip);
 }
