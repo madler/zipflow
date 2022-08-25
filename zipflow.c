@@ -9,7 +9,7 @@
 #include <stdint.h>
 #include <stdarg.h>
 #include <sys/stat.h>
-#include <sys/errno.h>
+#include <errno.h>
 #include <dirent.h>
 #include <time.h>
 #include <limits.h>
