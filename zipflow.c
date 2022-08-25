@@ -578,6 +578,7 @@ ZIP *zip_pipe(void *handle, int (*put)(void *, void const *, size_t),
     return (ZIP *)zip;
 }
 
+// See comments in zipflow.h.
 int zip_log(ZIP *ptr, void *hook, void (*log)(void *, char *)) {
     zip_t *zip = (zip_t *)ptr;
     if (zip == NULL || zip->id != ID)
