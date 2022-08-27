@@ -208,13 +208,6 @@ static void put_time(unsigned char *dos, time_t clock) {
 static void zip_local(zip_t *zip) {
     head_t const *head = zip->head + zip->hnum;
 
-    // Unix timestamps extra field.
-    unsigned char stamp[12];
-    PUT2(stamp, 13);                // PKWare id for Unix timestamps
-    PUT2(stamp + 2, 8);             // length of the remainder
-    PUT4(stamp + 4, head->atime);   // Unix accessed time
-    PUT4(stamp + 8, head->mtime);   // Unix modified time
-
     // Local header.
     unsigned char local[30];
     PUT4(local, 0x04034b50);        // local file header signature
@@ -227,12 +220,11 @@ static void zip_local(zip_t *zip) {
     PUT4(local + 18, 0);            // compressed size (in data descriptor)
     PUT4(local + 22, 0);            // uncompressed size (in data descriptor)
     PUT2(local + 26, head->nlen);   // file name length (name follows header)
-    PUT2(local + 28, sizeof(stamp));    // extra field length (follows name)
+    PUT2(local + 28, 0);            // extra field length
 
     // Write the local header.
     zip_put(zip, local, sizeof(local));
     zip_put(zip, head->name, head->nlen);
-    zip_put(zip, stamp, sizeof(stamp));
 }
 
 // Compress the file in using deflate, writing the compressed data to zip->out.
