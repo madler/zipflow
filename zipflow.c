@@ -330,8 +330,9 @@ static void zip_file(zip_t *zip, mode_t mode, time_t atime, time_t mtime) {
 
     // Save the name, permissions, times, and local header offset in the header
     // structure.
-    head->name = strdup(zip->path);
+    head->name = malloc(zip->plen + 1);
     assert(head->name != NULL && "out of memory");
+    memcpy(head->name, zip->path, zip->plen + 1);
     head->nlen = zip->plen;
     head->mode = mode;
     head->atime = atime;
@@ -609,8 +610,9 @@ int zip_meta(ZIP *ptr, char const *path, int os, ...) {
     // Save the path name for the header.
     zip_next(zip);
     head_t *head = zip->head + zip->hnum;
-    head->name = strdup(path);
+    head->name = malloc(len + 1);
     assert(head->name != NULL && "out of memory");
+    memcpy(head->name, path, len + 1);
     head->nlen = len;
 
     // Save provided OS-specific (Unix) header information.
