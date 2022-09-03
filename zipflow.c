@@ -21,8 +21,7 @@
 #define MAX16 0xffff
 #define MAX32 0xffffffff
 
-// Input and output buffer sizes for deflate. Twice this will be allocated on
-// the stack for compression.
+// Input and output buffer sizes for deflate.
 #if UINT_MAX < 4294967295
 #  define CHUNK 32768
 #else
@@ -51,6 +50,8 @@ typedef struct {
     void *handle;               // user opaque pointer for put() function
     int (*put)(void *, void const *, size_t);   // write streaming data
     FILE *out;                  // output file for streaming data
+    unsigned char *data;        // uncompressed deflate input buffer
+    unsigned char *comp;        // compressed deflate output buffer
     uint64_t off;               // current offset in zip file
     uint32_t id;                // constant identifier for validity check
     char bad;                   // true if there is a write error
@@ -137,6 +138,9 @@ ZIP *zip_init(int level) {
     zip->handle = NULL;
     zip->put = NULL;
     zip->out = NULL;
+    zip->data = malloc(CHUNK);
+    zip->comp = malloc(CHUNK);
+    assert(zip->data != NULL && zip->comp != NULL && "out of memory");
     zip->off = 0;
     zip->bad = 0;
     zip->omit = 0;
@@ -238,17 +242,15 @@ static void zip_deflate(zip_t *zip, FILE *in) {
     head->ulen = 0;
     head->clen = 0;
     head->crc = crc32(0, Z_NULL, 0);
-    unsigned char ent[CHUNK];       // uncompressed input buffer
-    unsigned char def[CHUNK];       // compressed output buffer
     zip->strm.avail_in = 0;
     int eof = 0, ret;
     do {
         if (zip->strm.avail_in == 0 && !eof) {
-            zip->strm.avail_in = fread(ent, 1, sizeof(ent), in);
-            zip->strm.next_in = ent;
+            zip->strm.avail_in = fread(zip->data, 1, CHUNK, in);
+            zip->strm.next_in = zip->data;
             head->ulen += zip->strm.avail_in;
-            head->crc = crc32(head->crc, ent, zip->strm.avail_in);
-            if (zip->strm.avail_in < sizeof(ent)) {
+            head->crc = crc32(head->crc, zip->data, zip->strm.avail_in);
+            if (zip->strm.avail_in < CHUNK) {
                 eof = 1;
                 if (ferror(in)) {
                     warn("read error on %s: %s -- entry omitted",
@@ -257,13 +259,13 @@ static void zip_deflate(zip_t *zip, FILE *in) {
                 }
             }
         }
-        zip->strm.avail_out = sizeof(def);
-        zip->strm.next_out = def;
+        zip->strm.avail_out = CHUNK;
+        zip->strm.next_out = zip->comp;
         ret = deflate(&zip->strm, eof ? Z_FINISH : Z_NO_FLUSH);
-        zip_put(zip, def, sizeof(def) - zip->strm.avail_out);
+        zip_put(zip, zip->comp, CHUNK - zip->strm.avail_out);
         if (zip->bad)
             return;                 // abandon compression on write error
-        head->clen += sizeof(def) - zip->strm.avail_out;
+        head->clen += CHUNK - zip->strm.avail_out;
     } while (ret == Z_OK);
     assert(ret == Z_STREAM_END && "internal error");
     deflateReset(&zip->strm);       // prepare for next use of engine
@@ -541,6 +543,8 @@ static int zip_clean(zip_t *zip) {
         free(zip->head[--zip->hnum].name);
     free(zip->head);
     free(zip->path);
+    free(zip->comp);
+    free(zip->data);
     int bad = zip->bad;
     zip->id = 0;
     free(zip);
@@ -656,19 +660,18 @@ int zip_data(ZIP *ptr, void const *data, size_t len, int last) {
     }
 
     // Compress the data to the output stream, updating the compressed length.
-    unsigned char def[CHUNK];       // compressed output buffer
     zip->strm.next_in = (unsigned char *)(uintptr_t)data;   // awful hack
     int ret;
     do {
         zip->strm.avail_in = len > UINT_MAX ? UINT_MAX : (unsigned)len;
         len -= zip->strm.avail_in;
-        zip->strm.avail_out = sizeof(def);
-        zip->strm.next_out = def;
+        zip->strm.avail_out = CHUNK;
+        zip->strm.next_out = zip->comp;
         ret = deflate(&zip->strm, last && len == 0 ? Z_FINISH : Z_NO_FLUSH);
-        zip_put(zip, def, sizeof(def) - zip->strm.avail_out);
+        zip_put(zip, zip->comp, CHUNK - zip->strm.avail_out);
         if (zip->bad)
             return zip->bad;            // abandon compression on write error
-        head->clen += sizeof(def) - zip->strm.avail_out;
+        head->clen += CHUNK - zip->strm.avail_out;
         // Continue until all input consumed and all output delivered. If last
         // is false, this loop will exit after a final unproductive call of
         // deflate(), which returns Z_BUF_ERROR.
