@@ -23,10 +23,12 @@
 
 // Input and output buffer sizes for deflate. Twice this will be allocated on
 // the stack for compression.
+#ifndef CHUNK
 #if UINT_MAX < 4294967295
 #  define CHUNK 32768
 #else
 #  define CHUNK 262144
+#endif
 #endif
 
 // Information on each entry saved for the central directory. This takes up 56
