@@ -132,7 +132,7 @@ static int zip_write(void *handle, void const *ptr, size_t size) {
 // Allocate, initialize, and return a zip_t structure. Provide starting
 // allocations for the path and list of headers. Fire up the deflate engine,
 // using level for the compression level.
-ZIP *zip_init(int level) {
+static ZIP *zip_init(int level) {
     zip_t *zip = malloc(sizeof(zip_t));
     assert(zip != NULL && "out of memory");
     zip->handle = NULL;
