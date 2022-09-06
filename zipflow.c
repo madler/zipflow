@@ -57,7 +57,7 @@ typedef struct {
     char bad;                   // true if there is a write error
     char omit;                  // true to omit entry in central directory
     char feed;                  // true if feeding data with zip_data()
-    char dummy;                 // (structure padding)
+    char level;                 // requested compression level
     size_t plen;                // path name length
     size_t pmax;                // path name allocation in bytes
     char *path;                 // current path (allocated)
@@ -146,6 +146,7 @@ ZIP *zip_init(int level) {
     zip->omit = 0;
     zip->feed = 0;
     zip->id = ID;
+    zip->level = level;
     zip->plen = 0;
     zip->pmax = 512;
     zip->path = malloc(zip->pmax);
@@ -208,6 +209,12 @@ static void put_time(unsigned char *dos, time_t clock) {
     }
 }
 
+// Representation of compression level for general purpose bit flag.
+#define LEVEL() \
+    (zip->level >= 9 ? 2 : \
+     zip->level == 2 ? 4 : \
+     zip->level == 1 ? 6 : 0)
+
 // Write a local header with the information in the last header slot.
 static void zip_local(zip_t *zip) {
     head_t const *head = zip->head + zip->hnum;
@@ -217,7 +224,7 @@ static void zip_local(zip_t *zip) {
     PUT4(local, 0x04034b50);        // local file header signature
     PUT2(local + 4,                 // version needed to extract (2.0 or 4.5)
          head->off >= MAX32 ? 45 : 20);
-    PUT2(local + 6, 0x80a);         // UTF-8 name, level 9, data descriptor
+    PUT2(local + 6, 0x808 + LEVEL());   // UTF-8 name, level, data descriptor
     PUT2(local + 8, 8);             // deflate compression method
     put_time(local + 10, head->mtime);  // modified time and date (4 bytes)
     PUT4(local + 14, 0);            // CRC-32 (in data descriptor)
@@ -458,7 +465,7 @@ static void zip_central(zip_t *zip, head_t const *head) {
     PUT4(central, 0x02014b50);      // central directory header signature
     PUT2(central + 4, 0x300 + 45);  // made in Unix, by version 4.5 equivalent
     PUT2(central + 6, len ? 45 : 20);       // version needed to extract
-    PUT2(central + 8, 0x80a);       // UTF-8 name, max compression, descriptor
+    PUT2(central + 8, 0x808 + LEVEL()); // UTF-8 name, level, data descriptor
     PUT2(central + 10, 8);          // deflate compression method
     put_time(central + 12, head->mtime);    // modified time and date (4 bytes)
     PUT4(central + 16, head->crc);  // CRC-32
