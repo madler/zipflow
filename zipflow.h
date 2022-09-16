@@ -100,8 +100,8 @@
 // number of files. This is required to be able to write the zip directory at
 // the end of the zip file. That amount of memory is equal to a small constant
 // plus the average length of a file name, multiplied by the number of entries
-// in the resulting zip file. The small constant is 56 bytes plus the null
-// termination and allocation overhead for the file name.
+// in the resulting zip file. The small constant is 64 to 72 bytes plus the
+// null termination and allocation overhead for the file name.
 
 #include <stdio.h>
 #include <stdint.h>
@@ -148,17 +148,18 @@ int zip_entry(ZIP *zip, char const *path);
 // Prepare to write a new zip entry by providing the metadata for the entry:
 // the name path and the operating system os, followed by operating-system
 // specific parameters. path is limited by the zip format to no more than 65535
-// bytes in length. For this version, os must be 3, which indicates that the
-// following arguments are Unix attributes. Those are the Unix permissions
-// mode, the last accessed Unix time atime, and the last modified Unix time
-// mtime. See the commented prototype below for the types. The next call must
-// be zip_data() to write the entry data. On success, 0 is returned. If zip,
-// path, or os are invalid, -1 is returned. Nothing is written to the zip file
-// by this function, so there is no possibility of a new write error.
+// bytes in length. os must be 3 for Unix attributes, or 10 for Windows
+// attributes. See the commented prototypes below for the types. The next call
+// must be zip_data() to write the entry data. On success, 0 is returned. If
+// zip, path, or os are invalid, -1 is returned. Nothing is written to the zip
+// file by this function, so there is no possibility of a new write error.
 int zip_meta(ZIP *zip, char const *path, int os, ...);
 // Unix:
-//      int zip_meta(ZIP *zip, char const *path, 3,
-//                   unsigned mode, uint32_t atime, uint32_t mtime);
+//      int zip_meta(ZIP *zip, char const *path, 3, unsigned mode,
+//                   uint32_t atime, uint32_t mtime);
+// Windows:
+//      int zip_meta(ZIP *zip, char const *path, 10, uint32_t attr,
+//                   uint64_t ctime, uint64_t atime, uint64_t mtime);
 
 // Compress and write the len bytes at data to the current entry in the zip
 // file. Complete the entry if last is true. zip_data() can only be called

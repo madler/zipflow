@@ -8,9 +8,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <stdarg.h>
-#include <sys/stat.h>
 #include <errno.h>
-#include <dirent.h>
 #include <time.h>
 #include <limits.h>
 #include <assert.h>
@@ -28,17 +26,20 @@
 #  define CHUNK 262144
 #endif
 
-// Information on each entry saved for the central directory. This takes up 56
-// bytes plus the allocated space for the zero-terminated file name per entry.
+// Information on each entry saved for the central directory. This takes up 64
+// to 72 bytes, plus the zero-terminated file name allocation for each entry.
 typedef struct {
     char *name;                 // path name (allocated)
-    size_t nlen;                // path name length
+    uint16_t nlen;              // path name length
+    uint8_t os;                 // operating system (currently 3 or 10)
+    uint8_t spare;              // (structure padding)
     uint64_t ulen;              // uncompressed length
     uint64_t clen;              // compressed length
     uint32_t crc;               // CRC-32 of uncompressed data
-    uint32_t mode;              // Unix permissions
-    uint32_t atime;             // Unix last accessed time
-    uint32_t mtime;             // Unix last modified time
+    uint32_t mode;              // Unix or Windows permissions
+    uint64_t ctime;             // Windows creation time
+    uint64_t atime;             // Unix or Windows last accessed time
+    uint64_t mtime;             // Unix or Windows last modified time
     uint64_t off;               // offset of local header
 } head_t;
 
@@ -142,10 +143,10 @@ static ZIP *zip_init(int level) {
     zip->comp = malloc(CHUNK);
     assert(zip->data != NULL && zip->comp != NULL && "out of memory");
     zip->off = 0;
+    zip->id = ID;
     zip->bad = 0;
     zip->omit = 0;
     zip->feed = 0;
-    zip->id = ID;
     zip->level = level;
     zip->plen = 0;
     zip->pmax = 512;
@@ -311,12 +312,11 @@ static void zip_next(zip_t *zip) {
     }
 }
 
-// Write an entry to the zip file. zip->path is the name of a regular file.
-// mode are the Unix permissions, atime is the Unix last accessed time, and
-// mtime is the Unix last modified time of the file. The times are saved in the
-// local and central headers, and the permissions in the central header. This
-// writes the local header, the compressed data, and the data descriptor.
-static void zip_file(zip_t *zip, mode_t mode, time_t atime, time_t mtime) {
+// Write an entry to the zip file. zip->path is the name of a regular file. The
+// operating system and associated file attributes have already been stored at
+// zip->head[zip->hnum]. This writes the local header, the compressed data, and
+// the data descriptor.
+static void zip_file(zip_t *zip) {
     // Check name length.
     if (zip->plen > 65535) {
         warn("file name is too long for the zip format! -- skipping %s",
@@ -324,7 +324,7 @@ static void zip_file(zip_t *zip, mode_t mode, time_t atime, time_t mtime) {
         return;
     }
 
-    // Make sure we can open it for reading first. stat() said it's there, but
+    // Make sure we can open it for reading first. We know it's there, but
     // perhaps we don't have permission to read it.
     FILE *in = fopen(zip->path, "rb");
     if (in == NULL) {
@@ -332,25 +332,21 @@ static void zip_file(zip_t *zip, mode_t mode, time_t atime, time_t mtime) {
         return;
     }
 
-    // Set up to save the information for the central directory -- assure that
-    // there is room in the list.
-    zip_next(zip);
+    // Save the name and local header offset in the header structure.
     head_t *head = zip->head + zip->hnum;
 
-    // Save the name, permissions, times, and local header offset in the header
-    // structure.
+    // Save the name and local header offset in the header structure.
     head->name = malloc(zip->plen + 1);
     assert(head->name != NULL && "out of memory");
     memcpy(head->name, zip->path, zip->plen + 1);
     head->nlen = zip->plen;
-    head->mode = mode;
-    head->atime = atime;
-    head->mtime = mtime;
     head->off = zip->off;
 
     // Write the local header, compressed data, and data descriptor, and update
     // the entry count. zip_deflate() sets the CRC-32 and lengths in the header
-    // structure.
+    // structure. If there is a read error on in, the entry is completed with
+    // the data read up to the error, but the entry is omitted from the central
+    // directory.
     zip_local(zip);
     zip_deflate(zip, in);
     fclose(in);
@@ -377,10 +373,102 @@ static void zip_room(zip_t *zip, size_t want) {
 
 // Look for regular files to put in the zip file, recursively descending into
 // the directories. If zip->path is a regular file, then zip it. If zip->path
-// is a directory, call zip_path() with each of the entries in that directory.
+// is a directory, call zip_scan() with each of the entries in that directory.
 // If zip->path is neither, issue a warning and go on to the next name.
-// Symbolic links are treated as the objects that they link to.
-static void zip_path(zip_t *zip) {
+// Symbolic links are treated as the objects that they link to. zip_scan() is
+// operating system dependent.
+#ifdef _WIN32
+#  define WIN32_LEAN_AND_MEAN
+#  include <windows.h>
+#  define OS 10
+static void zip_scan(zip_t *zip) {
+    // Get the metadata for the object named zip->path. We need to open the
+    // object in case it's a symbolic link.
+    HANDLE obj = CreateFileA(zip->path, GENERIC_READ, FILE_SHARE_READ, NULL,
+                             OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
+    if (obj == INVALID_HANDLE_VALUE) {
+        warn("could not open %s (%u) -- skipping", zip->path, GetLastError());
+        return;
+    }
+    BY_HANDLE_FILE_INFORMATION info;
+    int ret = GetFileInformationByHandle(obj, &info);
+    CloseHandle(obj);
+    if (ret == 0) {
+        warn("get %s info failed (%u) -- skipping", zip->path, GetLastError());
+        return;
+    }
+
+    if ((info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) &&
+        !(info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) {
+        // zip->path is a directory. Open and traverse the directory.
+        size_t len = zip->plen;
+        zip_room(zip, len + 3);
+        memcpy(zip->path + len, "\\*", 3);
+        WIN32_FIND_DATAA meta;
+        HANDLE dir = FindFirstFileA(zip->path, &meta);
+        if (dir == INVALID_HANDLE_VALUE) {
+            if (GetLastError() != ERROR_FILE_NOT_FOUND) {
+                warn("could not open directory %s (%u) -- skipping",
+                     zip->path, GetLastError());
+                return;
+            }
+        }
+        else {
+            do {
+                char const *name = meta.cFileName;
+                if (name[0] == '.' && (name[1] == 0 ||
+                                       (name[1] == '.' && name[2] == 0)))
+                    continue;           // ignore . and .. directories
+                size_t nlen = strlen(name);
+                if (memchr(name, '?', nlen) != NULL) {
+                    // The name could not be represented -- use alternate name.
+                    name = meta.cAlternateFileName;
+                    nlen = strlen(name);
+                }
+                // Append the name to zip->path. Recursively process the new
+                // zip->path.
+                zip_room(zip, len + 1 + nlen + 1);
+                memcpy(zip->path + len + 1, name, nlen + 1);
+                zip->plen = len + 1 + nlen;
+                zip_scan(zip);
+            } while (FindNextFileA(dir, &meta));
+            FindClose(dir);
+        }
+
+        // Restore zip->path to what it was.
+        zip->path[len] = 0;
+        zip->plen = len;
+        return;
+    }
+
+    if ((info.dwFileAttributes & FILE_ATTRIBUTE_DEVICE) ||
+        (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
+        // zip->path is a device or a symbolic link to a directory. We discard
+        // the latter in order to avoid recursion loops.
+        warn("%s is not a file or directory -- skipping", zip->path);
+        return;
+    }
+
+    // zip->path is a regular file, or a symbolic link to one. zip it,
+    // providing the associated file metadata to include in the zip file.
+    // Assure that there is room in the header list to add an entry.
+    zip_next(zip);
+    head_t *head = zip->head + zip->hnum;
+    head->os = OS;
+    head->mode = info.dwFileAttributes;
+    head->ctime = info.ftCreationTime.dwLowDateTime |
+                  ((uint64_t)info.ftCreationTime.dwHighDateTime << 32);
+    head->atime = info.ftLastAccessTime.dwLowDateTime |
+                  ((uint64_t)info.ftLastAccessTime.dwHighDateTime << 32);
+    head->mtime = info.ftLastWriteTime.dwLowDateTime |
+                  ((uint64_t)info.ftLastWriteTime.dwHighDateTime << 32);
+    zip_file(zip);
+}
+#else   // Unix (assumes POSIX compatible)
+#  include <sys/stat.h>
+#  include <dirent.h>
+#  define OS 3
+static void zip_scan(zip_t *zip) {
     // Get the metadata for the object named zip->path.
     struct stat st;
     int ret = stat(zip->path, &st);
@@ -397,25 +485,25 @@ static void zip_path(zip_t *zip) {
             return;
         }
         size_t len = zip->plen;
-        zip_room(zip, len + 2);
-        zip->path[len++] = '/';     // slash works on Unix, macOS, and Windows
+        zip->path[len] = '/';
         struct dirent *dp;
         while ((dp = readdir(dir)) != NULL) {
-            if (dp->d_name[0] == '.' && (dp->d_name[1] == 0 ||
-                (dp->d_name[1] == '.' && dp->d_name[2] == 0)))
+            char const *name = dp->d_name;
+            if (name[0] == '.' && (name[1] == 0 ||
+                                   (name[1] == '.' && name[2] == 0)))
                 continue;           // ignore . and .. directories
             // Append a slash and the name to zip->path. Recursively process
             // the new zip->path.
-            size_t nlen = strlen(dp->d_name);
-            zip_room(zip, len + nlen + 1);
-            memcpy(zip->path + len, dp->d_name, nlen + 1);
-            zip->plen = len + nlen;
-            zip_path(zip);
+            size_t nlen = strlen(name);
+            zip_room(zip, len + 1 + nlen + 1);
+            memcpy(zip->path + len + 1, name, nlen + 1);
+            zip->plen = len + 1 + nlen;
+            zip_scan(zip);
         }
         closedir(dir);
 
         // Restore zip->path to what it was.
-        zip->path[--len] = 0;
+        zip->path[len] = 0;
         zip->plen = len;
         return;
     }
@@ -428,43 +516,72 @@ static void zip_path(zip_t *zip) {
 
     // zip->path is a regular file, or a symbolic link to one. zip it,
     // providing the associated file metadata to include in the zip file.
-    zip_file(zip, st.st_mode, st.st_atime, st.st_mtime);
+    // Assure that there is room in the header list to add an entry.
+    zip_next(zip);
+    head_t *head = zip->head + zip->hnum;
+    head->os = OS;
+    head->mode = (uint32_t)st.st_mode << 16;
+    head->atime = st.st_atime;
+    head->mtime = st.st_mtime;
+    zip_file(zip);
 }
+#endif
 
 // Write a central directory entry with the information in head.
 static void zip_central(zip_t *zip, head_t const *head) {
-    // Zip64 extended information field. If len ends up zero, then not needed.
+    // Zip64 extended information field. If zlen ends up zero, then not needed.
     unsigned char zip64[28];
-    PUT2(zip64, 1);                 // zip64 extended information extra field
-    unsigned len = 0;
+    unsigned zlen = 0;
     if (head->ulen >= MAX32) {      // oddly ulen then clen, opposite headers
-        PUT8(zip64 + 4 + len, head->ulen);
-        len += 8;
+        PUT8(zip64 + 4 + zlen, head->ulen);
+        zlen += 8;
     }
     if (head->clen >= MAX32) {
-        PUT8(zip64 + 4 + len, head->clen);
-        len += 8;
+        PUT8(zip64 + 4 + zlen, head->clen);
+        zlen += 8;
     }
     if (head->off >= MAX32) {
-        PUT8(zip64 + 4 + len, head->off);
-        len += 8;
+        PUT8(zip64 + 4 + zlen, head->off);
+        zlen += 8;
     }
-    PUT2(zip64 + 2, len);
+    if (zlen) {
+        PUT2(zip64, 1);             // zip64 extended information id
+        PUT2(zip64 + 2, zlen);
+        zlen += 4;
+    }
 
-    // Unix timestamps extra field.
-    unsigned char stamp[12];
-    PUT2(stamp, 13);                // PKWare id for Unix timestamps
-    PUT2(stamp + 2, 8);             // length of the remainder
-    PUT4(stamp + 4, head->atime);   // Unix accessed time
-    PUT4(stamp + 8, head->mtime);   // Unix modified time
+    // Generate an extra field for UTC timestamps.
+    unsigned char stamp[36];
+    size_t xlen = 0;
+    if (head->os == 3) {
+        // Unix timestamps extra field.
+        PUT2(stamp, 13);                // PKWare id for Unix timestamps
+        PUT2(stamp + 2, 8);             // length of the remainder
+        PUT4(stamp + 4, head->atime);   // last accessed time
+        PUT4(stamp + 8, head->mtime);   // last modified time
+        xlen = 12;
+    }
+    else {      // head->os == 10
+        // Windows timestamps extra field.
+        PUT2(stamp, 10);                // NTFS extra field
+        PUT2(stamp + 2, 32);            // length of the remainder
+        PUT4(stamp + 4, 0);             // (reserved by PKWare)
+        PUT2(stamp + 8, 1);             // tag for timestamps
+        PUT2(stamp + 10, 24);           // length of the tag data
+        PUT8(stamp + 12, head->mtime);  // last write time
+        PUT8(stamp + 20, head->atime);  // last access time
+        PUT8(stamp + 28, head->ctime);  // creation time
+        xlen = 36;
+    }
 
     // Central directory header. Any offset or lengths that don't fit here are
     // replaced with the max value for the field, and appear instead in the
     // extended information field.
     unsigned char central[46];
     PUT4(central, 0x02014b50);      // central directory header signature
-    PUT2(central + 4, 0x300 + 45);  // made in Unix, by version 4.5 equivalent
-    PUT2(central + 6, len ? 45 : 20);       // version needed to extract
+    PUT2(central + 4,               // os, made by v4.5 equivalent
+         ((unsigned)head->os << 8) + 45);
+    PUT2(central + 6, zlen ? 45 : 20);  // version needed to extract
     PUT2(central + 8, 0x808 + LEVEL()); // UTF-8 name, level, data descriptor
     PUT2(central + 10, 8);          // deflate compression method
     put_time(central + 12, head->mtime);    // modified time and date (4 bytes)
@@ -474,21 +591,19 @@ static void zip_central(zip_t *zip, head_t const *head) {
     PUT4(central + 24,              // uncompressed length
          head->ulen >= MAX32 ? MAX32 : head->ulen);
     PUT2(central + 28, head->nlen); // file name length (name after header)
-    PUT2(central + 30,              // extra field length (after name)
-         (len ? len + 4 : 0) + sizeof(stamp));
+    PUT2(central + 30, zlen + xlen);    // extra field length (after name)
     PUT2(central + 32, 0);          // file comment length
     PUT2(central + 34, 0);          // starting disk
     PUT2(central + 36, 0);          // internal file attributes
-    PUT4(central + 38, head->mode << 16);   // Unix file attributes
+    PUT4(central + 38, head->mode); // Unix file attributes
     PUT4(central + 42,              // local header offset
          head->off >= MAX32 ? MAX32 : head->off);
 
     // Write central directory header.
     zip_put(zip, central, sizeof(central));
     zip_put(zip, head->name, head->nlen);
-    if (len)
-        zip_put(zip, zip64, len + 4);
-    zip_put(zip, stamp, sizeof(stamp));
+    zip_put(zip, zip64, zlen);
+    zip_put(zip, stamp, xlen);
 }
 
 // Write the zip file end records. The central directory started at offset beg
@@ -601,7 +716,7 @@ int zip_entry(ZIP *ptr, char const *path) {
     zip_room(zip, len + 1);
     memcpy(zip->path, path, len + 1);
     zip->plen = len;
-    zip_path(zip);
+    zip_scan(zip);
     return zip->bad;
 }
 
@@ -614,8 +729,8 @@ int zip_meta(ZIP *ptr, char const *path, int os, ...) {
     if (len > 65535)
         return -1;                  // path name too long for zip format
 
-    // For now, only allow os == 3, for Unix.
-    if (os != 3)
+    // For now, only allow os == 3 for Unix or 10 for Windows.
+    if (os != 3 && os != 10)
         return -1;
 
     // Save the path name for the header.
@@ -627,11 +742,21 @@ int zip_meta(ZIP *ptr, char const *path, int os, ...) {
     head->nlen = len;
 
     // Save provided OS-specific (Unix) header information.
+    head->os = os;
     va_list args;
     va_start(args, os);
-    head->mode = S_IFREG | (va_arg(args, unsigned) & 07777);
-    head->atime = va_arg(args, uint32_t);
-    head->mtime = va_arg(args, uint32_t);
+    if (os == 3) {
+        head->mode =
+            (uint32_t)(0100000 | (va_arg(args, unsigned) & 07777)) << 16;
+        head->atime = va_arg(args, uint32_t);
+        head->mtime = va_arg(args, uint32_t);
+    }
+    else {      // os == 10
+        head->mode = va_arg(args, uint32_t);
+        head->ctime = va_arg(args, uint64_t);
+        head->atime = va_arg(args, uint64_t);
+        head->mtime = va_arg(args, uint64_t);
+    }
     va_end(args);
 
     // Set up for writing the entry with zip_data().

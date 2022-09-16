@@ -18,8 +18,8 @@ Additional memory is used to save metadata on the files written to the zip
 file, proportional to the number of files. This is required to be able to write
 the zip directory at the end of the zip file. That amount of memory is equal to
 a small constant plus the average length of a file name, multiplied by the
-number of entries in the resulting zip file. The small constant is 56 bytes
-plus the null termination and allocation overhead for the file name.
+number of entries in the resulting zip file. The small constant is 64 to 72
+bytes plus the null termination and allocation overhead for the file name.
 
 Usage
 ------------
