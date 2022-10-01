@@ -380,10 +380,12 @@ static void zip_room(zip_t *zip, size_t want) {
 #ifdef _WIN32
 #  define WIN32_LEAN_AND_MEAN
 #  include <windows.h>
+#  include <locale.h>
 #  define OS 10
 static void zip_scan(zip_t *zip) {
     // Get the metadata for the object named zip->path. We need to open the
     // object in case it's a symbolic link.
+    setlocale(LC_ALL, ".utf8");
     HANDLE obj = CreateFileA(zip->path, GENERIC_READ, FILE_SHARE_READ, NULL,
                              OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
     if (obj == INVALID_HANDLE_VALUE) {
