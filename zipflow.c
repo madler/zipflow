@@ -1,5 +1,5 @@
 /* zipflow.c -- streaming zipper
- * Copyright (C) 2022 Mark Adler
+ * Copyright (C) 2022-2023 Mark Adler
  * For conditions of distribution and use, see copyright notice in zipflow.h
  */
 

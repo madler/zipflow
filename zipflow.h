@@ -1,7 +1,7 @@
 /*
-  zipflow version 1.2, 30 September 2022
+  zipflow version 1.3, 3 January 2023
 
-  Copyright (C) 2022 Mark Adler
+  Copyright (C) 2022-2023 Mark Adler
 
   This software is provided 'as-is', without any express or implied
   warranty.  In no event will the author be held liable for any damages
@@ -27,6 +27,8 @@
    1.1  24 Aug 2022  Portability and comment improvements
    1.2  30 Sep 2022  Add Windows support for attributes and directory traversal
                      Only include timestamps in central headers
+   1.3   3 Jan 2023  Interpret file and directory names as UTF-8 in Windows
+                     Fix bugs in zip_data() for large lengths
  */
 
 // zipflow is a streaming zipper. Names of files and directories, or metadata
