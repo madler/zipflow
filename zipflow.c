@@ -789,7 +789,7 @@ int zip_data(ZIP *ptr, void const *data, size_t len, int last) {
     // Update the CRC-32 and uncompressed length.
     head_t *head = zip->head + zip->hnum;
     if (len) {
-        head->crc = crc32(head->crc, data, len);
+        head->crc = crc32_z(head->crc, data, len);
         head->ulen += len;
     }
 
@@ -797,8 +797,10 @@ int zip_data(ZIP *ptr, void const *data, size_t len, int last) {
     zip->strm.next_in = (unsigned char *)(uintptr_t)data;   // awful hack
     int ret;
     do {
-        zip->strm.avail_in = len > UINT_MAX ? UINT_MAX : (unsigned)len;
-        len -= zip->strm.avail_in;
+        if (zip->strm.avail_in == 0) {
+            zip->strm.avail_in = len > UINT_MAX ? UINT_MAX : (unsigned)len;
+            len -= zip->strm.avail_in;
+        }
         zip->strm.avail_out = CHUNK;
         zip->strm.next_out = zip->comp;
         ret = deflate(&zip->strm, last && len == 0 ? Z_FINISH : Z_NO_FLUSH);
