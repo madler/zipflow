@@ -797,10 +797,11 @@ int zip_data(ZIP *ptr, void const *data, size_t len, int last) {
     zip->strm.next_in = (unsigned char *)(uintptr_t)data;   // awful hack
     int ret;
     do {
-        if (zip->strm.avail_in == 0) {
-            zip->strm.avail_in = len > UINT_MAX ? UINT_MAX : (unsigned)len;
-            len -= zip->strm.avail_in;
-        }
+        unsigned more = UINT_MAX - zip->strm.avail_in;
+        if (more > len)
+            more = (unsigned)len;
+        zip->strm.avail_in += more;
+        len -= more;
         zip->strm.avail_out = CHUNK;
         zip->strm.next_out = zip->comp;
         ret = deflate(&zip->strm, last && len == 0 ? Z_FINISH : Z_NO_FLUSH);
