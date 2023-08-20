@@ -241,10 +241,8 @@ static void zip_local(zip_t *zip) {
 
 // Compress the file in using deflate, writing the compressed data to zip->out.
 // Set the saved header fields for the uncompressed and compressed lengths, and
-// the CRC-32 computed on the uncompressed data. The input and output buffers
-// for deflation are allocated on the stack. If a write error is encountered,
-// the deflation process is abandoned, since the result won't be going anywhere
-// anyway.
+// the CRC-32 computed on the uncompressed data. Abandon the deflate process if
+// a write error is encountered, which is assumed to be persistent.
 static void zip_deflate(zip_t *zip, FILE *in) {
     head_t *head = zip->head + zip->hnum;
     head->ulen = 0;
