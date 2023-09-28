@@ -795,6 +795,7 @@ int zip_data(ZIP *ptr, void const *data, size_t len, int last) {
 
     // Compress the data to the output stream, updating the compressed length.
     zip->strm.next_in = (unsigned char *)(uintptr_t)data;   // awful hack
+    zip->strm.avail_in = 0;
     int ret;
     do {
         if (zip->strm.avail_in == 0) {
