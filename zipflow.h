@@ -1,5 +1,5 @@
 /*
-  zipflow version 1.3, 3 January 2023
+  zipflow version 1.4, 13 December 2023
 
   Copyright (C) 2022-2023 Mark Adler
 
@@ -29,6 +29,7 @@
                      Only include timestamps in central headers
    1.3   3 Jan 2023  Interpret file and directory names as UTF-8 in Windows
                      Fix bugs in zip_data() for large lengths
+   1.4  13 Dec 2023  Fix bug in zip_data() due to uninitialized count
  */
 
 // zipflow is a streaming zipper. Names of files and directories, or metadata
