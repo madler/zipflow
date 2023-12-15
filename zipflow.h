@@ -68,7 +68,8 @@
 // Instead of writing to a file, an output function can be registered by using
 // zip_pipe() instead of zip_open():
 //
-//      int put(void *handle, void const *ptr, size_t len) {
+//      int put(void *handle, void const *ptr, size_t len, int flag) {
+//          void (flag); // see zip_pipe()
 //          return fwrite(ptr, 1, len, (FILE *)handle) < len;
 //      }
 //      ZIP *zip = zip_pipe(stdout, put, level);
@@ -120,15 +121,18 @@ typedef void ZIP;           // opaque structure for zip streaming operations
 // range.
 ZIP *zip_open(FILE *out, int level);
 
-// Like zip_open(), but instead of a FILE *, register the function put() for
-// the streaming zip file output. put() accepts the len bytes at ptr. If ptr is
-// NULL, then the streaming has completed, and put() may flush the output.
-// put() returns 0 on success, or 1 to abort the streaming. If put() returns 1,
-// it will not be called again for that ZIP * instance. No error message is
-// issued in that case. A pointer to the zip state is returned on success. NULL
-// is returned if put is NULL or level is out of range.
+// Like zip_open(), but instead of a FILE *, register the function put() for the
+// streaming zip file output. put() accepts the len bytes at ptr. If flag is 0,
+// the current ptr remains valid and put() does not need to process it
+// immediately. If flag is 1, ptr and/or ptr from any any previous call will go
+// out of scope and put() needs to finish all processing of them. If flag is 2,
+// this is the last call to put() for this ZIP * instance.  put() returns 0 on
+// success, or 1 to abort the streaming. If put() returns 1, it will not be
+// called again for that ZIP * instance. No error message is issued in that
+// case. A pointer to the zip state is returned on success. NULL is returned if
+// put is NULL or level is out of range.
 ZIP *zip_pipe(void *handle,
-              int (*put)(void *handle, void const *ptr, size_t len),
+              int (*put)(void *handle, void const *ptr, size_t len, int flag),
               int level);
 
 // Register the function log() to intercept warning and error messages. msg is

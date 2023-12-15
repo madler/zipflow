@@ -49,7 +49,7 @@ typedef struct {
 // grows as needed. strm is a deflate engine that is reused for each entry.
 typedef struct {
     void *handle;               // user opaque pointer for put() function
-    int (*put)(void *, void const *, size_t);   // write streaming data
+    int (*put)(void *, void const *, size_t, int);   // write streaming data
     FILE *out;                  // output file for streaming data
     unsigned char *data;        // uncompressed deflate input buffer
     unsigned char *comp;        // compressed deflate output buffer
@@ -111,20 +111,21 @@ static void zip_msg(zip_t *zip, char const *fmt, ...) {
 // Write the size bytes at ptr to the zip file, updating the offset. If ptr is
 // NULL, then flush the output. If there is an error, block all subsequent
 // writes. All output to the stream goes through this function.
-static void zip_put(zip_t *zip, void const *ptr, size_t size) {
+static void zip_put(zip_t *zip, void const *ptr, size_t size, int flag) {
     if (zip->bad)
         return;
-    if (zip->put(zip->handle, ptr, size))
+    if (zip->put(zip->handle, ptr, size, flag))
         zip->bad = 1;
     else
         zip->off += size;
 }
 
 // Default put() function for writing to the file zip->out.
-static int zip_write(void *handle, void const *ptr, size_t size) {
+static int zip_write(void *handle, void const *ptr, size_t size, int flag) {
     zip_t *zip = (zip_t *)handle;
-    int ret = ptr == NULL ? fflush(zip->out) :
-                            fwrite(ptr, 1, size, zip->out) < size;
+    int ret = fwrite(ptr, 1, size, zip->out) < size;
+    if (flag == 2 && ret == 0)
+        ret = fflush(zip->out);
     if (ret)
         warn("write error: %s -- aborting", strerror(errno));
     return ret;
@@ -235,8 +236,8 @@ static void zip_local(zip_t *zip) {
     PUT2(local + 28, 0);            // extra field length
 
     // Write the local header.
-    zip_put(zip, local, sizeof(local));
-    zip_put(zip, head->name, head->nlen);
+    zip_put(zip, local, sizeof(local), 0);
+    zip_put(zip, head->name, head->nlen, 1);
 }
 
 // Compress the file in using deflate, writing the compressed data to zip->out.
@@ -268,7 +269,7 @@ static void zip_deflate(zip_t *zip, FILE *in) {
         zip->strm.avail_out = CHUNK;
         zip->strm.next_out = zip->comp;
         ret = deflate(&zip->strm, eof ? Z_FINISH : Z_NO_FLUSH);
-        zip_put(zip, zip->comp, CHUNK - zip->strm.avail_out);
+        zip_put(zip, zip->comp, CHUNK - zip->strm.avail_out, 1);
         if (zip->bad)
             return;                 // abandon compression on write error
         head->clen += CHUNK - zip->strm.avail_out;
@@ -291,13 +292,13 @@ static void zip_desc(zip_t *zip) {
         // zip64 long compressed and uncompressed lengths
         PUT8(desc + 8, head->clen);
         PUT8(desc + 16, head->ulen);
-        zip_put(zip, desc, 24);
+        zip_put(zip, desc, 24, 1);
     }
     else {
         // legacy short compressed and uncompressed lengths
         PUT4(desc + 8, head->clen);
         PUT4(desc + 12, head->ulen);
-        zip_put(zip, desc, 16);
+        zip_put(zip, desc, 16, 1);
     }
 }
 
@@ -600,10 +601,10 @@ static void zip_central(zip_t *zip, head_t const *head) {
          head->off >= MAX32 ? MAX32 : head->off);
 
     // Write central directory header.
-    zip_put(zip, central, sizeof(central));
-    zip_put(zip, head->name, head->nlen);
-    zip_put(zip, zip64, zlen);
-    zip_put(zip, stamp, xlen);
+    zip_put(zip, central, sizeof(central), 0);
+    zip_put(zip, head->name, head->nlen, 0);
+    zip_put(zip, zip64, zlen, 0);
+    zip_put(zip, stamp, xlen, 1);
 }
 
 // Write the zip file end records. The central directory started at offset beg
@@ -635,8 +636,8 @@ static void zip_end(zip_t *zip, uint64_t beg) {
         PUT4(loc + 16, 1);          // total number of disks
 
         // Write the zip64 records.
-        zip_put(zip, xend, sizeof(xend));
-        zip_put(zip, loc, sizeof(loc));
+        zip_put(zip, xend, sizeof(xend), 0);
+        zip_put(zip, loc, sizeof(loc), 1);
     }
 
     // end of central directory record.
@@ -655,7 +656,7 @@ static void zip_end(zip_t *zip, uint64_t beg) {
     PUT2(end + 20, 0);              // zip file comment length (after record)
 
     // Write the end record. This completes the zip file.
-    zip_put(zip, end, sizeof(end));
+    zip_put(zip, end, sizeof(end), 2);
 }
 
 // Free all allocated memory. Return true if a write error was noted.
@@ -687,7 +688,7 @@ ZIP *zip_open(FILE *out, int level) {
 }
 
 // See comments in zipflow.h.
-ZIP *zip_pipe(void *handle, int (*put)(void *, void const *, size_t),
+ZIP *zip_pipe(void *handle, int (*put)(void *, void const *, size_t, int),
               int level) {
     if (put == NULL || level < -1 || level > Z_BEST_COMPRESSION)
         return NULL;
@@ -804,7 +805,7 @@ int zip_data(ZIP *ptr, void const *data, size_t len, int last) {
         zip->strm.avail_out = CHUNK;
         zip->strm.next_out = zip->comp;
         ret = deflate(&zip->strm, last && len == 0 ? Z_FINISH : Z_NO_FLUSH);
-        zip_put(zip, zip->comp, CHUNK - zip->strm.avail_out);
+        zip_put(zip, zip->comp, CHUNK - zip->strm.avail_out, 1);
         if (zip->bad)
             return zip->bad;            // abandon compression on write error
         head->clen += CHUNK - zip->strm.avail_out;
@@ -840,7 +841,5 @@ int zip_close(ZIP *ptr) {
     for (size_t i = 0; i < zip->hnum && !zip->bad; i++)
         zip_central(zip, zip->head + i);
     zip_end(zip, beg);
-    if (!zip->bad)
-        zip->put(zip->handle, NULL, 0);
     return zip_clean(zip);
 }
