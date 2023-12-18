@@ -23,8 +23,11 @@
 int main(int argc, char **argv) {
     SET_BINARY_MODE(stdout);
     ZIP *zip = zip_open(stdout, -1);
-    for (int i = 1; i < argc; i++)
+    for (int i = 1; i < argc; i++) {
+	if (zip_level(zip, -1))
+            break;
         if (zip_entry(zip, argv[i]))
             break;
+    }
     return zip_close(zip);
 }

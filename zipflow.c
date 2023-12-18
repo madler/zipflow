@@ -844,3 +844,11 @@ int zip_close(ZIP *ptr) {
         zip->put(zip->handle, NULL, 0);
     return zip_clean(zip);
 }
+
+// See comments in zipflow.h.
+int zip_level(ZIP *ptr, int level) {
+    zip_t *zip = (zip_t *)ptr;
+    if (zip == NULL || zip->id != ID)
+        return -1;
+    return (deflateParams(&zip->strm, level, Z_DEFAULT_STRATEGY));
+}

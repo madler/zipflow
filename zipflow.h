@@ -183,6 +183,9 @@ int zip_data(ZIP *zip, void const *data, size_t len, int last);
 // returned.
 int zip_close(ZIP *zip);
 
+// Adjust the compression level. See zlib deflateParams() for details
+int zip_level(ZIP *zip, int level);
+
 // Error handling notes: All memory allocations are expected to succeed. The
 // code aborts immediately with an assert if an allocation or reallocation
 // fails. Similarly, the deflate() process and localtime() on the current time
